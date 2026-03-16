@@ -261,7 +261,8 @@ defmodule Mix.Tasks.Check do
   - `--[no-]retry` - (don't) run only checks that have failed in the last run
   - `--[no-]reprint` - (don't) reprint output from failed tools once all tools finish
   - `--[no-]fail-fast` - (don't) stop after the first failure
-  - `--[no-]lock` - (don't) wait for other `mix check` runs to finish before starting
+  - `--[no-]lock` - (don't) wait for other `mix check` runs to finish before starting;
+    abandoned locks are reclaimed automatically after about 10 seconds
   - `--[no-]lock-global` - (don't) enforce machine-wide lock instead of per-project lock
   - `--[no-]parallel` - (don't) run tools in parallel
   - `--[no-]skipped` - (don't) print skipped tools in summary

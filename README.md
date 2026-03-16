@@ -32,6 +32,7 @@ Takes care of the little details, so you don't have to.
 - Reprints failures together at the end when desired (toggle with `--no-reprint` or `reprint: false`)
 - Retries ExUnit with the `--failed` flag
 - Can stop immediately after the first failure with `--fail-fast`
+- Recovers abandoned lock files automatically after about 10 seconds without disabling locking
 
 Read more in the introductory ["One task to rule all Elixir analysis & testing tools"](https://cloudless.studio/one-task-to-rule-all-elixir-analysis-testing-tools) article.
 
