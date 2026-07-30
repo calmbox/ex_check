@@ -54,7 +54,8 @@ defmodule ExCheck.ProjectCases.FailFastTest do
     )
 
     output =
-      System.cmd("mix", ~w[check --only fail_tool --only stubborn_tool], cd: project_dir) |> cmd_exit(1)
+      System.cmd("mix", ~w[check --only fail_tool --only stubborn_tool], cd: project_dir)
+      |> cmd_exit(1)
 
     assert output =~ "fail_tool"
     assert output =~ "error code"

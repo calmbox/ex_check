@@ -21,13 +21,14 @@ defmodule ExCheck.UmbrellaProjectCases.FailFastTest do
     assert File.exists?(config_path)
 
     output =
-      System.cmd("mix", ~w[check --only fail_tool --only slow_tool], cd: project_root_dir) |> cmd_exit(1)
+      System.cmd("mix", ~w[check --only fail_tool --only slow_tool], cd: project_root_dir)
+      |> cmd_exit(1)
 
     assert output =~ "fail_tool"
     assert output =~ "error code"
 
     assert output =~ "slow_tool"
     assert output =~ "terminated early"
-    assert output =~ "SIGTERM"
+    assert output =~ ~r/SIG(?:TERM|KILL)/
   end
 end

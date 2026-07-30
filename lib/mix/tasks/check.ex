@@ -49,6 +49,42 @@ defmodule Mix.Tasks.Check do
 
   You can disable or adjust curated tools as well as add custom ones via the configuration file.
 
+  ## Fast and full checks
+
+  Plain `mix check` is optimized for iterative development. It compiles first, runs enabled
+  inexpensive tools, narrows tools configured with `:content_changed` to inputs changed since that
+  tool's last successful run, and runs the ExUnit tests affected by the current content changes.
+  Tools configured with `:full_only` are skipped.
+
+  `mix check --full` is the authoritative commit and CI command. It selects each tool's `:full`
+  command when configured, enables every `:full_only` tool, ignores cached pass results and
+  automatic retry narrowing, and forces all ExUnit tests to run. `--full --retry` is rejected.
+  Explicit `--only` and `--except` remain available for diagnosis, but a qualified full command is
+  no longer an authoritative whole-project check.
+
+  A successful fast test run stores a versioned content snapshot and compiler-reference graph in
+  the Mix manifest directory. The next run selects tests through compile/export dependencies,
+  direct test changes, and a small set of path ownership rules. Changes to configuration,
+  dependencies, migrations, test bootstrap, or an unmapped Elixir source conservatively run the
+  full suite. Missing, corrupt, or incompatible state also runs the full suite. State advances only
+  after successful tests against an unchanged content generation; failures and concurrent edits
+  preserve the previous verified snapshot.
+
+  Content-gated tools keep independent snapshots. A successful tool result advances its snapshot
+  only when its filtered inputs stayed unchanged during the run. Failures and concurrent edits do
+  not advance it. Full mode ignores the gate, runs the complete command, and refreshes the
+  corresponding snapshot after success.
+
+  `mix check --debug` prints changed paths, affected modules, selection groups, selected test files,
+  and any fallback reason while running the selected tests. `mix check --explain` prints the same
+  details without running ExUnit. Normal runs omit these impact diagnostics; explain mode prints
+  complete path lists while debug mode bounds them to 20 entries.
+
+  Unqualified fast and full runs with `--debug` also record a content digest. When
+  `mix check --full --debug` follows a successful `mix check --debug` for the exact same generation,
+  the summary states whether the full suite exposed a fast miss. Ordinary runs do not perform this
+  audit. Qualified `--only`, `--except`, and explain runs do not participate in the comparison.
+
   ## Workflow
 
   1. `:compiler` tool is run before others in order to compile the project just once and to avoid
@@ -152,6 +188,9 @@ defmodule Mix.Tasks.Check do
   has resulted in any failures. You can change this behavior with `--no-retry` command line option
   or by setting `retry: false` in config.
 
+  Retry narrowing applies only to fast mode. Full mode always starts every enabled tool and runs
+  all tests, regardless of the previous check manifest.
+
   ### Fix mode
 
   Some tools are capable of automatically resolving issues by running in the fix mode. You may take
@@ -194,7 +233,7 @@ defmodule Mix.Tasks.Check do
   - `:parallel` - toggles running tools in parallel; default: `true`
   - `:skipped` - toggles printing skipped tools in summary; default: `true`
   - `:fix` - toggles running tools in fix mode in order to resolve issues automatically; default: `false`
-  - `:incremental` - toggles running tools in incremental mode (skips full_only tools, uses base commands, filters by git-changed files); default: `false`
+  - `:full` - runs authoritative full commands and full-only tools; default: `false`
   - `:retry` - toggles running only checks that have failed in the last run; default: 'true' if manifest exists
   - `:reprint` - toggles reprinting output from failed tools once all tools finish; default: `true`
   - `:fail_fast` - stops running remaining tools as soon as a failure is detected; default: `true`
@@ -221,7 +260,15 @@ defmodule Mix.Tasks.Check do
   - `:fix` - fix mode command as string or list of strings (executable + arguments)
   - `:full` - full mode command as string or list of strings (executable + arguments)
   - `:full_only` - toggles whether tool only runs in full mode; default: `false`
+  - `:content_changed` - runs a tool only for inputs changed since its last successful run;
+    default: `false`
+  - `:content_changed_append` - toggles appending changed paths to the command; default: `true`
+  - `:content_changed_extensions` - file extensions included in the content snapshot; default: all
+  - `:content_changed_include` - path prefixes included in the content snapshot; default: all
+  - `:content_changed_full` - paths/prefixes that make the tool run without appended paths
   - `:git_changed` - appends git-changed files to command (skips if none); default: `false`
+  - `:git_changed_append` - toggles appending matched files after using them to gate the tool;
+    default: `true`
   - `:git_changed_extensions` - file extensions for git_changed filter; default: `[".ex", ".exs"]`
   - `:git_changed_include` - path prefixes to include for git_changed filter; default: `nil` (all paths)
   - `:retry` - command to retry after failure as string or list of strings (executable + arguments)
@@ -256,8 +303,10 @@ defmodule Mix.Tasks.Check do
   - `--manifest path/to/manifest` - specify path to file that holds last run results
   - `--only dialyzer --only credo ...` - run only specified check(s)
   - `--except dialyzer --except credo ...` - don't run specified check(s)
+  - `--debug` - print affected-test selection details while running tests
+  - `--explain` - explain affected-test selection without running ExUnit tests
   - `--[no-]fix` - (don't) run tools in fix mode in order to resolve issues automatically
-  - `--[no-]incremental` - run tools in incremental mode (skips full_only tools, uses base commands, filters by git-changed files)
+  - `--[no-]full` - run authoritative full commands, full-only tools, and all ExUnit tests
   - `--[no-]retry` - (don't) run only checks that have failed in the last run
   - `--[no-]reprint` - (don't) reprint output from failed tools once all tools finish
   - `--[no-]fail-fast` - (don't) stop after the first failure
@@ -290,10 +339,12 @@ defmodule Mix.Tasks.Check do
 
   @switches [
     config: :string,
+    debug: :boolean,
     except: :keep,
+    explain: :boolean,
     exit_status: :boolean,
     fix: :boolean,
-    incremental: :boolean,
+    full: :boolean,
     lock: :boolean,
     lock_global: :boolean,
     manifest: :string,
@@ -308,7 +359,6 @@ defmodule Mix.Tasks.Check do
   @aliases [
     c: :config,
     f: :fix,
-    i: :incremental,
     l: :lock,
     m: :manifest,
     o: :only,
@@ -320,9 +370,13 @@ defmodule Mix.Tasks.Check do
   def run(args) do
     {opts, _} = OptionParser.parse!(args, strict: @switches, aliases: @aliases)
 
-    opts
-    |> process_opts()
-    |> Check.run()
+    if opts[:full] && opts[:retry] do
+      Mix.raise("--full cannot be combined with --retry")
+    end
+
+    opts = process_opts(opts)
+    opts = if opts[:explain], do: Keyword.put(opts, :only, :ex_unit), else: opts
+    Check.run(opts)
   end
 
   defp process_opts(opts) do

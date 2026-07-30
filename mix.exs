@@ -8,13 +8,13 @@ defmodule ExCheck.MixProject do
     [
       app: :ex_check,
       version: @version,
-      elixir: "~> 1.12",
+      elixir: "~> 1.20",
+      elixirc_options: [no_warn_undefined: [:crypto]],
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       docs: docs(),
-      package: package(),
-      xref: [exclude: [:crypto]]
+      package: package()
     ]
   end
 
@@ -58,7 +58,7 @@ defmodule ExCheck.MixProject do
         "README.md": [title: "Overview"]
       ],
       main: "readme",
-      assets: "assets",
+      assets: %{"assets" => "assets"},
       logo: "assets/logo.svg",
       source_url: @github_url,
       source_ref: "v#{@version}",

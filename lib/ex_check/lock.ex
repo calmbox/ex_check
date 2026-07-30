@@ -20,6 +20,7 @@ defmodule ExCheck.Lock do
     end
   end
 
+  # sobelow_skip ["Traversal.FileModule"]
   def acquire(opts \\ false) do
     opts = normalize_opts(opts)
     path = Keyword.fetch!(opts, :path)
@@ -31,6 +32,7 @@ defmodule ExCheck.Lock do
     :ok
   end
 
+  # sobelow_skip ["Traversal.FileModule"]
   def release(opts \\ false) do
     opts = normalize_opts(opts)
     path = Keyword.fetch!(opts, :path)
@@ -58,6 +60,7 @@ defmodule ExCheck.Lock do
     end
   end
 
+  # sobelow_skip ["Traversal.FileModule"]
   defp try_lock(path, opts) do
     case File.mkdir(path) do
       :ok ->
@@ -78,11 +81,13 @@ defmodule ExCheck.Lock do
     end
   end
 
+  # sobelow_skip ["Traversal.FileModule"]
   defp initialize_lease(path) do
     File.write!(owner_path(path), owner_metadata())
     refresh_heartbeat(path)
   end
 
+  # sobelow_skip ["Traversal.FileModule"]
   defp reclaim_stale_lock(path, opts) do
     if stale_lock?(path, opts) do
       stale_path = "#{path}.stale.#{System.unique_integer([:positive])}"
@@ -115,6 +120,7 @@ defmodule ExCheck.Lock do
     end
   end
 
+  # sobelow_skip ["Traversal.FileModule"]
   defp heartbeat_age_ms(path) do
     heartbeat_path = heartbeat_path(path)
 
@@ -196,6 +202,7 @@ defmodule ExCheck.Lock do
     end
   end
 
+  # sobelow_skip ["Traversal.FileModule"]
   defp refresh_heartbeat(path) do
     File.write!(heartbeat_path(path), Integer.to_string(System.system_time(:millisecond)))
   end

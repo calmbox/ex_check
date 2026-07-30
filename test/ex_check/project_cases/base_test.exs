@@ -8,11 +8,11 @@ defmodule ExCheck.ProjectCases.BaseTest do
     assert output =~ "formatter success"
     assert output =~ "ex_unit success"
     assert output =~ "credo skipped due to missing package credo"
-    assert output =~ "sobelow skipped due to missing package sobelow"
-    assert output =~ "dialyzer skipped due to missing package dialyxir"
+    refute output =~ "sobelow"
+    refute output =~ "dialyzer"
     assert output =~ "ex_doc skipped due to missing package ex_doc"
     refute output =~ "npm_test"
-    assert output =~ "unused_deps success"
+    refute output =~ "unused_deps"
     assert_ex_unit_seed(output)
   end
 end

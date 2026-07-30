@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Changed** the minimum supported runtime to Elixir 1.20 and OTP 29
+- **Changed** plain `mix check` into a fast iterative check; use `mix check --full` for the authoritative commit and CI suite
+- **Changed** Dialyzer, Sobelow, dependency audit, and unused-dependency checks to run only in full mode by default
+- **Added** content-snapshot and compiler-graph ExUnit selection with conservative full-suite fallbacks and transactional Mix manifest updates
+- **Added** `mix check --explain` to show changed inputs, affected modules, selected tests, and fallback reasons without executing tests
+- **Added** `mix check --debug` to show impact-selection details during an ordinary test run; normal runs now omit those diagnostics
+- **Added** successful-content-snapshot tool gates and use them for formatter and Credo by default
+- **Added** `:full`, `:full_only`, `:git_changed`, `:git_changed_append`, `:git_changed_extensions`, and `:git_changed_include` tool options
+- **Added** staged, unstaged, and untracked file support to changed-file tool narrowing
+- **Added** opt-in same-generation fast/full outcome auditing for unqualified `--debug` checks
+- **Changed** fast/full labels to the quieter `fast mode` and `full mode` wording
+- **Removed** the former `--incremental` option; there is no compatibility alias
 - **Added** support for disabling failed tool reprinting via `--no-reprint` CLI flag or `reprint: false` config
 - **Added** optional fail-fast mode that stops the pipeline after the first failure
 - **Changed** default compiler check to run without `mix compile --force` for faster runs

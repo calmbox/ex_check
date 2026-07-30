@@ -1,7 +1,7 @@
 defmodule ExCheck.Check.Compiler do
   @moduledoc false
 
-  alias ExCheck.{Config, Project}
+  alias ExCheck.{Config, ContentGate, Project}
 
   def compile(tools, opts) do
     {
@@ -158,7 +158,7 @@ defmodule ExCheck.Check.Compiler do
     Keyword.get(tool_opts, :enabled, true) == false ||
       (Keyword.has_key?(opts, :only) && !Enum.any?(opts, &(&1 == {:only, name}))) ||
       Enum.any?(opts, fn i -> i == {:except, name} end) ||
-      (Keyword.get(tool_opts, :full_only, false) && opts[:incremental])
+      (Keyword.get(tool_opts, :full_only, false) && !opts[:full])
   end
 
   defp find_failed_detection(name, tool_opts) do
@@ -209,55 +209,97 @@ defmodule ExCheck.Check.Compiler do
 
     command =
       command
+      |> maybe_append_impact_flags(name, opts)
       |> command_to_array()
-      |> postprocess_cmd(tool_opts)
 
-    case apply_git_changed(command, tool_opts, opts) do
+    case ContentGate.prepare(name, command, tool_opts, opts) do
       {:skip, reason} ->
-        {:skipped, name, {:git_changed, reason}}
+        {:skipped, name, {:content_changed, reason}}
 
-      {:ok, command} ->
-        command_opts =
-          tool_opts
-          |> Keyword.take([:cd, :env, :deps])
-          |> Keyword.put(:mode, mode)
-          |> Keyword.put(:umbrella_parallel, get_in(tool_opts, [:umbrella, :parallel]))
+      {:ok, command, content_gate} ->
+        command = postprocess_cmd(command, tool_opts)
 
-        {:pending, {name, command, command_opts}}
+        case apply_git_changed(command, tool_opts, opts) do
+          {:skip, reason} ->
+            {:skipped, name, {:git_changed, reason}}
+
+          {:ok, command} ->
+            command_opts =
+              tool_opts
+              |> Keyword.take([:cd, :env, :deps])
+              |> Keyword.put(:mode, mode)
+              |> Keyword.put(:umbrella_parallel, get_in(tool_opts, [:umbrella, :parallel]))
+              |> maybe_put_content_gate(content_gate)
+
+            {:pending, {name, command, command_opts}}
+        end
     end
   end
 
+  defp maybe_append_impact_flags(command, name, opts) do
+    if tool_name(name) == :ex_unit do
+      flags =
+        []
+        |> maybe_append_flag(opts[:explain], "--explain")
+        |> maybe_append_flag(opts[:debug], "--debug")
+
+      command_to_array(command) ++ flags
+    else
+      command
+    end
+  end
+
+  defp maybe_append_flag(flags, true, flag), do: flags ++ [flag]
+  defp maybe_append_flag(flags, _enabled, _flag), do: flags
+
+  defp maybe_put_content_gate(opts, nil), do: opts
+
+  defp maybe_put_content_gate(opts, content_gate),
+    do: Keyword.put(opts, :content_gate, content_gate)
+
+  defp tool_name({name, _app}), do: name
+  defp tool_name(name), do: name
+
   defp apply_git_changed(cmd, tool_opts, opts) do
-    if Keyword.get(tool_opts, :git_changed) && opts[:incremental] do
+    if Keyword.get(tool_opts, :git_changed) && !opts[:full] do
       extensions = Keyword.get(tool_opts, :git_changed_extensions, ~w[.ex .exs])
       include_prefixes = Keyword.get(tool_opts, :git_changed_include)
+      append? = Keyword.get(tool_opts, :git_changed_append, true)
 
-      case get_changed_files(extensions, include_prefixes) do
+      case get_changed_files(extensions, include_prefixes, append?) do
         [] ->
           {:skip, "no changed files"}
 
         files ->
-          {:ok, cmd ++ files}
+          if append?, do: {:ok, cmd ++ files}, else: {:ok, cmd}
       end
     else
       {:ok, cmd}
     end
   end
 
-  defp get_changed_files(extensions, include_prefixes) do
-    case System.cmd("git", ["diff", "--name-only", "--diff-filter=d", "HEAD"],
-           stderr_to_stdout: true
-         ) do
-      {output, 0} ->
-        output
-        |> String.split("\n", trim: true)
-        |> Enum.filter(&matches_extension?(&1, extensions))
-        |> Enum.filter(&matches_include_prefix?(&1, include_prefixes))
+  defp get_changed_files(extensions, include_prefixes, append?) do
+    diff_args =
+      if append?,
+        do: ["diff", "--name-only", "--diff-filter=d", "HEAD"],
+        else: ["diff", "--name-only", "HEAD"]
 
-      _ ->
-        []
+    with {changed, 0} <-
+           System.cmd("git", diff_args, stderr_to_stdout: true),
+         {untracked, 0} <-
+           System.cmd("git", ["ls-files", "--others", "--exclude-standard"], stderr_to_stdout: true) do
+      (lines(changed) ++ lines(untracked))
+      |> Enum.uniq()
+      |> Enum.filter(fn file ->
+        matches_extension?(file, extensions) and
+          matches_include_prefix?(file, include_prefixes)
+      end)
+    else
+      _ -> []
     end
   end
+
+  defp lines(output), do: String.split(output, "\n", trim: true)
 
   defp matches_extension?(file, extensions) do
     Enum.any?(extensions, &String.ends_with?(file, &1))
@@ -277,7 +319,7 @@ defmodule ExCheck.Check.Compiler do
       opts[:retry] && tool_opts[:retry] ->
         {:retry, tool_opts[:retry]}
 
-      !opts[:incremental] && tool_opts[:full] ->
+      opts[:full] && tool_opts[:full] ->
         {:full, tool_opts[:full]}
 
       true ->

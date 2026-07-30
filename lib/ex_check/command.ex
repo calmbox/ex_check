@@ -51,7 +51,7 @@ defmodule ExCheck.Command do
     end)
   end
 
-  def unsilence(task = %Task{pid: pid}) do
+  def unsilence(%Task{pid: pid} = task) do
     send(pid, :unsilence)
     task
   end
@@ -222,18 +222,16 @@ defmodule ExCheck.Command do
   end
 
   defp child_pids(parent_pid) when is_integer(parent_pid) do
-    with nil <- System.find_executable("pgrep"),
-         {out, 0} <- ps_children(parent_pid) do
-      parse_pids(out)
+    if System.find_executable("pgrep") do
+      case System.cmd("pgrep", ["-P", "#{parent_pid}"], stderr_to_stdout: true) do
+        {out, 0} -> parse_pids(out)
+        _ -> []
+      end
     else
-      pgrep when is_binary(pgrep) ->
-        case System.cmd(pgrep, ["-P", "#{parent_pid}"], stderr_to_stdout: true) do
-          {out, 0} -> parse_pids(out)
-          _ -> []
-        end
-
-      _ ->
-        []
+      case ps_children(parent_pid) do
+        {out, 0} -> parse_pids(out)
+        _ -> []
+      end
     end
   end
 

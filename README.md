@@ -9,19 +9,23 @@
 
 ![Demo](./assets/demo-67x16.svg)
 
-**Run all code checking tools with a single convenient `mix check` command.**
+**Get fast feedback with `mix check`, then run the authoritative suite with `mix check --full`.**
 
 ---
 
 Takes seconds to setup, saves hours in the long term.
 - Comes out of the box with a [predefined set of curated tools](https://hexdocs.pm/ex_check/Mix.Tasks.Check.html#module-tools)
 - Delivers results faster by [running tools in parallel and catching all issues in one go](https://hexdocs.pm/ex_check/Mix.Tasks.Check.html#module-workflow)
-- Checks the project consistently on every developer's local machine & [on the CI](https://github.com/karolsluszniak/ex_check#continuous-integration)
+- Selects affected ExUnit tests from content snapshots and the compiler graph, with conservative full-suite fallbacks
+- Keeps expensive tools such as Dialyzer, Sobelow, and dependency audit in the [full check](https://hexdocs.pm/ex_check/Mix.Tasks.Check.html#module-fast-and-full-checks)
+- Runs formatter, Credo, and configurable aggregate tools only for content changed since each tool's last successful run
+- Checks the project consistently before commits and [on CI](https://github.com/karolsluszniak/ex_check#continuous-integration)
 - Runs only the tools & tests that have [failed in the last run](https://hexdocs.pm/ex_check/Mix.Tasks.Check.html#module-retrying-failed-tools)
 - Fixes issues automatically in [the fix mode](https://hexdocs.pm/ex_check/Mix.Tasks.Check.html#module-fix-mode)
 
 Sports powerful features to enable ultimate flexibility.
 - Add custom mix tasks, shell scripts and commands via [configuration file](https://hexdocs.pm/ex_check/Mix.Tasks.Check.html#module-configuration-file)
+- Gate aggregate tools on staged, unstaged, and untracked inputs without requiring a persistent server
 - Enhance you CI workflow to [report status](https://hexdocs.pm/ex_check/Mix.Tasks.Check.html#module-manifest-file), [retry random failures](#random-failures) or [autofix issues](#autofixing)
 - Empower umbrella projects with [parallel recursion over child apps](https://hexdocs.pm/ex_check/Mix.Tasks.Check.html#module-umbrella-projects)
 - Design complex parallel workflows with [cross-tool deps](https://hexdocs.pm/ex_check/Mix.Tasks.Check.html#module-cross-tool-dependencies)
@@ -43,7 +47,7 @@ Add `ex_check` dependency in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:ex_check, "~> 0.16.0", only: [:dev], runtime: false}
+    {:ex_check, "~> 0.16.0", only: [:test], runtime: false}
   ]
 end
 ```
@@ -54,13 +58,26 @@ Fetch the dependency:
 mix deps.get
 ```
 
-Run the check:
+Run the fast iterative check:
 
 ```
 mix check
 ```
 
-That's it - `mix check` will detect and run all the available tools.
+Before a commit, and on CI, run the authoritative check:
+
+```
+mix check --full
+```
+
+The fast check compiles first, runs inexpensive tools, and selects affected tests. The full check
+ignores retry narrowing, enables full-only tools, and forces every ExUnit test to run. When you want
+to inspect test selection while it runs, use `mix check --debug`; use `mix check --explain` to see
+the same details without executing tests. Normal runs omit impact-selection diagnostics.
+
+In debug mode, when an unqualified full check follows a successful unqualified fast check that also
+ran with `--debug` for the exact same content generation, ex_check reports whether the
+authoritative suite exposed a fast miss. Ordinary runs neither record nor report this comparison.
 
 ### Community tools
 
@@ -69,13 +86,13 @@ If you want to take advantage of community curated tools, add following dependen
 ```elixir
 def deps do
   [
-    {:credo, ">= 0.0.0", only: [:dev], runtime: false},
-    {:dialyxir, ">= 0.0.0", only: [:dev], runtime: false},
-    {:doctor, ">= 0.0.0", only: [:dev], runtime: false},
+    {:credo, ">= 0.0.0", only: [:test], runtime: false},
+    {:dialyxir, ">= 0.0.0", only: [:test], runtime: false},
+    {:doctor, ">= 0.0.0", only: [:test], runtime: false},
     {:ex_doc, ">= 0.0.0", only: [:dev], runtime: false},
-    {:gettext, ">= 0.0.0", only: [:dev], runtime: false},
-    {:sobelow, ">= 0.0.0", only: [:dev], runtime: false},
-    {:mix_audit, ">= 0.0.0", only: [:dev], runtime: false}
+    {:gettext, ">= 0.0.0", only: [:test], runtime: false},
+    {:sobelow, ">= 0.0.0", only: [:test], runtime: false},
+    {:mix_audit, ">= 0.0.0", only: [:test], runtime: false}
   ]
 end
 ```
@@ -117,9 +134,9 @@ Want to write your own code check? Get yourself started by reading the ["Writing
 
 ## Continuous Integration
 
-With `mix check` you can consistently run the same set of checks locally and on the CI. CI configuration also becomes trivial and comes out of the box with parallelism and error output from all checks at once regardless of which ones have failed.
+With `mix check --full` you can consistently run the authoritative set of checks before commits and on CI. CI configuration also comes out of the box with parallelism and error output from all checks at once regardless of which ones have failed.
 
-Like on a local machine, all you have to do in order to use `ex_check` on CI is run `mix check` instead of `mix test`. This repo features working CI configs for following providers:
+Run `mix check --full` instead of `mix test`. Do not use the fast default as a merge or release gate. This repo features a working CI config for:
 
 - GitHub - [.github/workflows/check.yml](https://github.com/karolsluszniak/ex_check/blob/master/.github/workflows/check.yml)
 
@@ -145,7 +162,7 @@ Of course your CI will need to have write permissions to the source repository.
 
 ### Random failures
 
-You may take advantage of the automatic retry feature to efficiently re-run failed tools & tests multiple times. For instance, following shell command runs check up to three times: `mix check || mix check || mix check`. And here goes an alternative without the logical operators:
+You may take advantage of the automatic retry feature to efficiently re-run failed tools & tests multiple times during development. For instance, following shell command runs check up to three times: `mix check || mix check || mix check`. And here goes an alternative without the logical operators:
 
 ```bash
 mix check
@@ -155,13 +172,16 @@ mix check --retry
 
 This will work as expected because the `--retry` flag will ensure that only failed tools are executed, resulting in no-op if previous run has succeeded.
 
+Full checks never retry narrowly. `mix check --full --retry` is rejected because it would make the
+meaning of the authoritative command ambiguous.
+
 ## Troubleshooting
 
-### Duplicate builds
+### A single test build
 
-If, as suggested above, you've added `ex_check` and curated tools to `only: [:dev]`, you're keeping the test environment reserved for `ex_unit`. While a clean setup, it comes at the expense of Mix having to compile your app twice - in order to prepare `:test` build just for `ex_unit` and `:dev` build for other tools. This costs precious time both on local machine and on the CI. It may also cause issues if you set `MIX_ENV=test`, which is a common practice on the CI.
-
-You may avoid this issue by running `mix check` and all the tools it depends on in the test environment. In such case you may want to have the following config in `mix.exs`:
+The fast test selector and its compiler manifests belong to `MIX_ENV=test`. Run `mix check` and all
+the tools it depends on in that environment to avoid duplicate dev/test compilation. Configure the
+task and dependencies as follows when your project does not already use a single test build:
 
 ```elixir
 def project do

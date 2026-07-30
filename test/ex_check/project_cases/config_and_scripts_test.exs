@@ -57,7 +57,14 @@ defmodule ExCheck.ProjectCases.ConfigAndScriptsTest do
     output =
       System.cmd(
         "elixir",
-        ["-e", "Application.put_env(:elixir, :ansi_enabled, true)", "-S", "mix", "check"],
+        [
+          "-e",
+          "Application.put_env(:elixir, :ansi_enabled, true)",
+          "-S",
+          "mix",
+          "check",
+          "--full"
+        ],
         cd: project_dir,
         stderr_to_stdout: true
       )

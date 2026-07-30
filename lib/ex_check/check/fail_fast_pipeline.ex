@@ -48,32 +48,39 @@ defmodule ExCheck.Check.FailFastPipeline do
       |> maybe_start_next(fns)
       |> maybe_start_display(fns)
 
-    cond do
-      state.halted != nil and map_size(state.running) == 0 ->
-        {:halted, state.finished, state.pending, [], state.halted.reason}
+    continue_loop(state, fns)
+  end
 
-      state.pending == [] and map_size(state.running) == 0 ->
-        {state.finished, []}
+  defp continue_loop(%{halted: halted, running: running} = state, _fns)
+       when not is_nil(halted) and map_size(running) == 0 do
+    {:halted, state.finished, state.pending, [], halted.reason}
+  end
 
-      map_size(state.running) == 0 ->
-        {state.finished, state.pending}
+  defp continue_loop(%{pending: [], running: running} = state, _fns)
+       when map_size(running) == 0 do
+    {state.finished, []}
+  end
 
-      state.halted != nil ->
-        do_halted_loop(state, fns)
+  defp continue_loop(%{running: running} = state, _fns) when map_size(running) == 0 do
+    {state.finished, state.pending}
+  end
 
-      true ->
-        receive do
-          {ref, task_result} when is_reference(ref) and is_map_key(state.running, ref) ->
-            state
-            |> handle_task_result(ref, task_result, fns)
-            |> loop(fns)
+  defp continue_loop(%{halted: halted} = state, fns) when not is_nil(halted) do
+    do_halted_loop(state, fns)
+  end
 
-          {:DOWN, ref, :process, _pid, reason}
-          when is_reference(ref) and is_map_key(state.running, ref) ->
-            state
-            |> handle_task_down(ref, reason, fns)
-            |> loop(fns)
-        end
+  defp continue_loop(state, fns) do
+    receive do
+      {ref, task_result} when is_reference(ref) and is_map_key(state.running, ref) ->
+        state
+        |> handle_task_result(ref, task_result, fns)
+        |> loop(fns)
+
+      {:DOWN, ref, :process, _pid, reason}
+      when is_reference(ref) and is_map_key(state.running, ref) ->
+        state
+        |> handle_task_down(ref, reason, fns)
+        |> loop(fns)
     end
   end
 
@@ -87,7 +94,8 @@ defmodule ExCheck.Check.FailFastPipeline do
         |> handle_task_result(ref, task_result, fns)
         |> loop(fns)
 
-      {:DOWN, ref, :process, _pid, reason} when is_reference(ref) and is_map_key(state.running, ref) ->
+      {:DOWN, ref, :process, _pid, reason}
+      when is_reference(ref) and is_map_key(state.running, ref) ->
         state
         |> handle_task_down(ref, reason, fns)
         |> loop(fns)
@@ -115,7 +123,8 @@ defmodule ExCheck.Check.FailFastPipeline do
 
     {pending, running, queue} =
       Enum.reduce(selected, {state.pending, state.running, state.queue}, fn payload,
-                                                                      {pending, running, queue} ->
+                                                                            {pending, running,
+                                                                             queue} ->
         running_payload = fns.start_fn.(payload)
         task = extract_task!(running_payload)
 
@@ -214,52 +223,55 @@ defmodule ExCheck.Check.FailFastPipeline do
     end
   end
 
+  defp maybe_start_display(%{displaying_ref: ref} = state, _fns) when not is_nil(ref), do: state
+
+  defp maybe_start_display(%{halted: %{failed_ref_displayed: true}} = state, _fns), do: state
+
+  defp maybe_start_display(%{queue: []} = state, _fns), do: state
+
   defp maybe_start_display(state, fns) do
-    cond do
-      state.displaying_ref != nil ->
-        state
-
-      state.halted != nil and state.halted.failed_ref_displayed == true ->
-        state
-
-      state.queue == [] ->
-        state
-
-      true ->
-        ref = hd(state.queue)
-
-        cond do
-          entry = Map.get(state.running, ref) ->
-            _ = fns.display_start_fn.(entry.running_payload)
-            %{state | displaying_ref: ref}
-
-          entry = Map.get(state.completed, ref) ->
-            _ = fns.display_start_fn.(entry.running_payload)
-
-            output = output_from_task_result(entry.task_result)
-            _ = fns.display_print_fn.(entry.task_result)
-            _ = fns.display_finish_fn.(output)
-
-            completed = Map.delete(state.completed, ref)
-            queue = tl(state.queue)
-
-            state = %{state | completed: completed, queue: queue}
-
-            state =
-              if state.halted != nil and ref == state.halted.failed_ref do
-                halted = Map.put(state.halted, :failed_ref_displayed, true)
-                %{state | halted: halted}
-              else
-                state
-              end
-
-            maybe_start_display(state, fns)
-
-          true ->
-            %{state | queue: tl(state.queue)} |> maybe_start_display(fns)
-        end
-    end
+    ref = hd(state.queue)
+    start_display(Map.fetch(state.running, ref), state, ref, fns)
   end
+
+  defp start_display({:ok, entry}, state, ref, fns) do
+    _ = fns.display_start_fn.(entry.running_payload)
+    %{state | displaying_ref: ref}
+  end
+
+  defp start_display(:error, state, ref, fns) do
+    finish_completed_display(Map.fetch(state.completed, ref), state, ref, fns)
+  end
+
+  defp finish_completed_display({:ok, entry}, state, ref, fns) do
+    _ = fns.display_start_fn.(entry.running_payload)
+
+    output = output_from_task_result(entry.task_result)
+    _ = fns.display_print_fn.(entry.task_result)
+    _ = fns.display_finish_fn.(output)
+
+    state = %{
+      state
+      | completed: Map.delete(state.completed, ref),
+        queue: tl(state.queue)
+    }
+
+    state
+    |> maybe_mark_failed_ref_displayed(ref)
+    |> maybe_start_display(fns)
+  end
+
+  defp finish_completed_display(:error, state, _ref, fns) do
+    state
+    |> Map.update!(:queue, &tl/1)
+    |> maybe_start_display(fns)
+  end
+
+  defp maybe_mark_failed_ref_displayed(%{halted: %{failed_ref: ref} = halted} = state, ref) do
+    %{state | halted: Map.put(halted, :failed_ref_displayed, true)}
+  end
+
+  defp maybe_mark_failed_ref_displayed(state, _ref), do: state
 
   defp output_from_task_result({output, _code, _stream_fn, _silenced, _duration, _cancel_info})
        when is_binary(output),

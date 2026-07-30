@@ -4,41 +4,29 @@ on: [pull_request, push]
 
 jobs:
   mix_check:
-    name: mix check (Elixir ${{matrix.elixir}}, OTP ${{matrix.otp}})
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - elixir: '1.16.1'
-            otp: '26.2.2'
-          - elixir: '1.14.5'
-            otp: '24.3.4.16'
-          - elixir: '1.12.3'
-            otp: '22.3.4.26'
-
-    runs-on: ubuntu-20.04
+    name: mix check (Elixir 1.20.2, OTP 29.0.4)
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
 
       - name: Set up Elixir
-        uses: erlef/setup-elixir@v1
+        uses: erlef/setup-beam@v1
         with:
-          elixir-version: ${{ matrix.elixir }}
-          otp-version: ${{ matrix.otp }}
+          elixir-version: '1.20.2'
+          otp-version: '29.0.4'
 
       - name: Cache deps and build
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: |
             deps
             _build
-          key: deps-${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('**/mix.lock') }}-git-${{ github.sha }}
+          key: deps-${{ runner.os }}-29.0.4-1.20.2-${{ hashFiles('**/mix.lock') }}-git-${{ github.sha }}
           restore-keys: |
-            deps-${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('**/mix.lock') }}
-            deps-${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}
+            deps-${{ runner.os }}-29.0.4-1.20.2-${{ hashFiles('**/mix.lock') }}
+            deps-${{ runner.os }}-29.0.4-1.20.2
 
       - name: Fetch deps
         run: mix deps.get

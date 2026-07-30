@@ -5,6 +5,8 @@ defmodule ExCheck.LockTest do
 
   alias ExCheck.Lock
 
+  @task_start_timeout 1_000
+
   setup do
     tmp_dir = create_tmp_directory()
     lock_path = Path.join(tmp_dir, "lock.lease")
@@ -52,7 +54,7 @@ defmodule ExCheck.LockTest do
         )
       end)
 
-    assert_receive {:holding, holder_pid}
+    assert_receive {:holding, holder_pid}, @task_start_timeout
 
     waiter =
       Task.async(fn ->
@@ -88,7 +90,7 @@ defmodule ExCheck.LockTest do
         )
       end)
 
-    assert_receive {:holding, holder_pid}
+    assert_receive {:holding, holder_pid}, @task_start_timeout
 
     waiter =
       Task.async(fn ->
@@ -141,8 +143,8 @@ defmodule ExCheck.LockTest do
         )
       end)
 
-    assert_receive {:acquired, acquired_one}
-    assert_receive {:acquired, acquired_two}
+    assert_receive {:acquired, acquired_one}, @task_start_timeout
+    assert_receive {:acquired, acquired_two}, @task_start_timeout
     assert Enum.sort([acquired_one, acquired_two]) == [:first, :second]
     assert Enum.sort([Task.await(first), Task.await(second)]) == [:first, :second]
   end

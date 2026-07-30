@@ -8,7 +8,8 @@ defmodule ExCheck.ProjectCases.ExternalToolsTest do
     System.cmd("mix", ~w[compile], cd: project_dir, env: %{"MIX_ENV" => "dev"}) |> cmd_exit(0)
 
     output =
-      System.cmd("mix", ~w[check], cd: project_dir, env: %{"MIX_ENV" => "dev"}) |> cmd_exit(0)
+      System.cmd("mix", ~w[check --full], cd: project_dir, env: %{"MIX_ENV" => "dev"})
+      |> cmd_exit(0)
 
     assert output =~ "compiler success"
     assert output =~ "formatter success"

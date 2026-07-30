@@ -3,7 +3,7 @@ defmodule ExCheck.UmbrellaProjectCases.BaseTest do
 
   test "base", %{project_dirs: [project_root_dir | _]} do
     System.cmd("mix", ~w[compile], cd: project_root_dir) |> cmd_exit(0)
-    output = System.cmd("mix", ~w[check], cd: project_root_dir) |> cmd_exit(0)
+    output = System.cmd("mix", ~w[check --full], cd: project_root_dir) |> cmd_exit(0)
 
     assert output =~ "compiler success"
     assert output =~ "formatter success"

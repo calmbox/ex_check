@@ -10,6 +10,13 @@
 # Where third-party dependencies like ExDoc output generated docs.
 /doc/
 
+# Local research and implementation plans.
+/docs/
+
+# Local benchmark research harness, measurements, and its harness-only tests.
+/bench/
+/test/ex_check/bench/
+
 # Ignore .fetch files in case you like to edit your project deps locally.
 /.fetch
 

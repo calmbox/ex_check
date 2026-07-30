@@ -6,6 +6,9 @@ defmodule ExCheck.Check do
   alias ExCheck.Check.Pipeline
   alias ExCheck.Command
   alias ExCheck.Config
+  alias ExCheck.ContentGate
+  alias ExCheck.ContentSnapshot
+  alias ExCheck.FastFullAudit
   alias ExCheck.Lock
   alias ExCheck.Manifest
   alias ExCheck.Printer
@@ -16,6 +19,7 @@ defmodule ExCheck.Check do
     opts =
       config_opts
       |> Keyword.merge(opts)
+      |> disable_retry_in_full_mode()
       |> maybe_toggle_retry_mode()
       |> Manifest.convert_retry_to_only()
 
@@ -26,6 +30,10 @@ defmodule ExCheck.Check do
     else
       compile_and_run_tools(tools, opts)
     end
+  end
+
+  defp disable_retry_in_full_mode(opts) do
+    if opts[:full], do: Keyword.put(opts, :retry, false), else: opts
   end
 
   defp maybe_toggle_retry_mode(opts) do
@@ -49,6 +57,10 @@ defmodule ExCheck.Check do
   end
 
   defp compile_and_run_tools(tools, opts) do
+    starting_snapshot = ContentSnapshot.capture()
+    opts = Keyword.put(opts, :content_snapshot, starting_snapshot)
+    print_mode_start(opts)
+
     {compiler, others} = Compiler.compile(tools, opts)
 
     start_time = DateTime.utc_now()
@@ -65,10 +77,13 @@ defmodule ExCheck.Check do
 
     all_results = [compiler_result | others_results]
     failed_results = Enum.filter(all_results, &failed_result?/1)
+    ending_snapshot = ContentSnapshot.capture()
 
     maybe_reprint_errors(failed_results, opts)
     maybe_print_terminated_outputs(all_results, opts)
     print_summary(all_results, total_duration, opts)
+    ContentGate.finish(all_results, ending_snapshot)
+    FastFullAudit.finish(opts, starting_snapshot, ending_snapshot, failed_results == [])
     Manifest.save(all_results, opts)
     maybe_set_exit_status(failed_results)
   end
@@ -79,7 +94,7 @@ defmodule ExCheck.Check do
 
   @compile_warn_out "Compilation failed due to warnings while using the --warnings-as-errors option"
 
-  defp run_others?(_compiler_result = {status, _, {_, output, _, _meta}}) do
+  defp run_others?({status, _, {_, output, _, _meta}}) do
     status == :ok or String.contains?(output, @compile_warn_out)
   end
 
@@ -460,7 +475,15 @@ defmodule ExCheck.Check do
   end
 
   defp print_summary(items, total_duration, opts) do
-    Printer.info([:magenta, "=> finished in ", :bright, format_duration(total_duration)])
+    Printer.info([
+      :magenta,
+      "=> ",
+      mode_label(opts),
+      " finished in ",
+      :bright,
+      format_duration(total_duration)
+    ])
+
     Printer.info()
 
     items
@@ -468,6 +491,16 @@ defmodule ExCheck.Check do
     |> Enum.each(&print_summary_item(&1, opts))
 
     Printer.info()
+  end
+
+  defp print_mode_start(opts) do
+    Printer.info([:magenta, "=> ", mode_label(opts), " check"])
+    Printer.info()
+  end
+
+  defp mode_label(opts) do
+    mode = if opts[:full], do: "full", else: "fast"
+    if opts[:explain], do: mode <> " explain mode", else: mode <> " mode"
   end
 
   defp get_summary_item_order({:ok, {name, _, _}, _}), do: {0, normalize_tool_name(name)}
@@ -478,7 +511,7 @@ defmodule ExCheck.Check do
 
   defp get_summary_item_order({:skipped, name, _}), do: {3, normalize_tool_name(name)}
 
-  defp normalize_tool_name(name = {_, _}), do: name
+  defp normalize_tool_name({_, _} = name), do: name
   defp normalize_tool_name(name), do: {name, 0}
 
   defp print_summary_item({:ok, {name, _, opts}, {_, _, duration, _meta}}, _) do
@@ -598,6 +631,10 @@ defmodule ExCheck.Check do
 
   defp format_skip_reason({:git_changed, reason}) do
     ["git-changed skipped (", b(reason), ")"]
+  end
+
+  defp format_skip_reason({:content_changed, reason}) do
+    ["content-changed skipped (", b(reason), ")"]
   end
 
   defp format_tool_name(name) when is_atom(name) do
