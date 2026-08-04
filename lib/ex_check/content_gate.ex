@@ -87,8 +87,16 @@ defmodule ExCheck.ContentGate do
 
     length(changed_paths) <= @max_appended_files and
       path_bytes <= @max_appended_path_bytes and
-      Enum.all?(changed_paths, &Map.has_key?(current, &1)) and
+      Enum.all?(changed_paths, &appendable_path?(current, &1)) and
       Enum.all?(changed_paths, &(not broad_path?(&1, broad_paths)))
+  end
+
+  defp appendable_path?(current, path) do
+    case Map.fetch(current, path) do
+      {:ok, :deleted} -> false
+      {:ok, _hash} -> true
+      :error -> false
+    end
   end
 
   defp broad_path?(path, broad_paths) do

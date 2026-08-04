@@ -195,6 +195,15 @@ defmodule ExCheck.ProjectCases.FastFullTest do
     full = run_check(project_dir, ~w[--full --only content_echo], 0)
     assert full =~ "checked\n"
     refute full =~ "checked assets/example.js"
+
+    File.rm!(asset_path)
+
+    deleted = run_check(project_dir, ~w[--only content_echo --no-retry], 0)
+    assert deleted =~ "checked\n"
+    refute deleted =~ "checked assets/example.js"
+
+    unchanged_deleted = run_check(project_dir, ~w[--only content_echo --no-retry], 0)
+    assert unchanged_deleted =~ "content-changed skipped"
   end
 
   test "content-changed tools do not advance their snapshot after failure", %{
