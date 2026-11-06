@@ -207,9 +207,20 @@ defmodule ExCheck.Check do
 
     pending
     |> filter_no_deps(finished)
+    |> formatter_fix_first(running)
     |> throttle_parallel(running, parallel)
     |> throttle_umbrella_parallel(running)
   end
+
+  # Fixing formatter rewrites sources that other tools read, which makes test impact detect
+  # changed inputs mid-run and demand a retry, so it runs alone before them.
+  defp formatter_fix_first(ready, running) do
+    if Enum.any?(ready ++ running, &formatter_fix?/1),
+      do: Enum.filter(ready, &formatter_fix?/1),
+      else: ready
+  end
+
+  defp formatter_fix?({:pending, {name, _, opts}}), do: name == :formatter and opts[:mode] == :fix
 
   defp filter_no_deps(pending, finished) do
     Enum.filter(pending, fn tool ->

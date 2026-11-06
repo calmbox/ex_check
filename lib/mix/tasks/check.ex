@@ -200,6 +200,9 @@ defmodule Mix.Tasks.Check do
 
   You may combine `--fix` with `--retry` to only request tools that have failed to do the fixing.
 
+  In fix mode the formatter runs before other tools start, so they never read sources it is
+  rewriting.
+
   You may also consider adding `~/.check.exs` with `[fix: true]` on a local machine in order to
   always run in the fix mode for convenience. You probably don't want this option in the project
   config as that would trigger fix mode on CI as well - unless you want CI to perform & commit back
